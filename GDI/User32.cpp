@@ -16,6 +16,10 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
+
+// for GET_X_LPARAM and GET_Y_LPARAM
+#include <windowsx.h>
+
 #include "Wrappers\wrapper.h"
 #include "GDI.h"
 #include "Settings\Settings.h"
@@ -25,6 +29,53 @@ namespace GdiWrapper
 {
 	FARPROC CreateWindowExA_out = nullptr;
 	FARPROC CreateWindowExW_out = nullptr;
+	WNDPROC OriginalWndProc = nullptr;
+	uint32_t GameWidth = 800;
+	uint32_t GameHeight = 600;
+	uint32_t NativeWidth = 1920;
+	uint32_t NativeHeight = 1080;
+}
+
+LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	Logging::LogDebug() << __FUNCTION__ << " " << Logging::hex(uMsg);
+
+	if (!GdiWrapper::OriginalWndProc)
+	{
+		//LOG_LIMIT(100, __FUNCTION__ << " Error: no WndProc specified " << Logging::hex(uMsg));
+		return NULL;
+	}
+
+	if (GdiWrapper::OriginalWndProc == WndProc) {
+		return NULL;
+	}
+
+	uint32_t newLparam = lParam;
+
+	switch (uMsg) {
+	case WM_MOUSEMOVE:
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONDBLCLK:
+	case WM_LBUTTONUP:
+	case WM_MBUTTONDBLCLK:
+	case WM_MBUTTONDOWN:
+	case WM_MBUTTONUP:
+	case WM_RBUTTONDBLCLK:
+	case WM_RBUTTONDOWN:
+	case WM_RBUTTONUP:
+	{
+		uint32_t x = GET_X_LPARAM(lParam);
+		uint32_t y = GET_Y_LPARAM(lParam);
+		Logging::LogDebug() << __FUNCTION__ << " " << Logging::hex(uMsg) << " x " << x << " y " << y;
+
+		float value = (float(GdiWrapper::NativeWidth) / float(GdiWrapper::NativeHeight)) * float(GdiWrapper::GameHeight);
+
+		newLparam = (((uint32_t)(max((x / float(GdiWrapper::NativeWidth)) * value - ((value - float(GdiWrapper::GameWidth)) * 0.5f), 0.0f)) & 0xffff)) | ((((uint32_t)((y / float(GdiWrapper::NativeHeight)) * float(GdiWrapper::GameHeight))) & 0xffff) << 16);
+	}
+	break;
+	}
+
+	return GdiWrapper::OriginalWndProc(hWnd, uMsg, wParam, newLparam);
 }
 
 using namespace GdiWrapper;
@@ -58,6 +109,8 @@ HWND user_CreateWindowEx(DWORD dwExStyle, T lpClassName, T lpWindowName, DWORD d
 {
 	Logging::LogDebug() << __FUNCTION__ << " " << lpClassName << " " << lpWindowName << " " << Logging::hex(dwExStyle) << " " << Logging::hex(dwStyle) << " " << X << "x" << Y << " " << nWidth << "x" << nHeight << " " << Logging::hex((DWORD)hWndParent) << " " << hWndParent << " " << hMenu << " " << hInstance;
 
+	HWND hwnd = NULL;
+
 	// Handle popup window type
 	if ((dwStyle & WS_POPUP) && (dwStyle & WS_VISIBLE) && !(dwStyle & WS_CLIPSIBLINGS) && !hWndParent)
 	{
@@ -66,19 +119,34 @@ HWND user_CreateWindowEx(DWORD dwExStyle, T lpClassName, T lpWindowName, DWORD d
 		// Remove popup style
 		dwNewStyle = dwStyle & ~WS_POPUP;
 
-		HWND hwnd = user_CreateWindowEx_out(dwExStyle, lpClassName, lpWindowName, dwNewStyle, X, Y, nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam);
+		hwnd = user_CreateWindowEx_out(dwExStyle, lpClassName, lpWindowName, dwNewStyle, X, Y, nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam);
 
 		if (hwnd)
 		{
 			LOG_LIMIT(100, __FUNCTION__ << " Removed WS_POPUP window style! " << hwnd);
 
 			SetWindowLong(hwnd, GWL_STYLE, dwNewStyle);
+		}
 
-			return hwnd;
+		if (hwnd)
+		{
+			OriginalWndProc = (WNDPROC)GetWindowLong(hwnd, GWL_WNDPROC);
+
+			Logging::LogDebug() << __FUNCTION__ << " Add custom WndProc to " << lpClassName << " " << lpWindowName << " " << Logging::hex((DWORD)hWndParent) << " " << hWndParent << " " << hMenu << " " << hInstance;
+
+			// Set new WndProc
+			if (!OriginalWndProc || !SetWindowLong(hwnd, GWL_WNDPROC, (LONG)WndProc))
+			{
+				Logging::Log() << __FUNCTION__ << " Failed to overload WndProc!";
+				OriginalWndProc = nullptr;
+			}
 		}
 	}
+	else {
+		hwnd = user_CreateWindowEx_out(dwExStyle, lpClassName, lpWindowName, dwStyle, X, Y, nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam);
+	}
 
-	return user_CreateWindowEx_out(dwExStyle, lpClassName, lpWindowName, dwStyle, X, Y, nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam);
+	return hwnd;
 }
 
 HWND WINAPI user_CreateWindowExA(DWORD dwExStyle, LPCSTR lpClassName, LPCSTR lpWindowName, DWORD dwStyle, int X, int Y, int nWidth, int nHeight, HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam)

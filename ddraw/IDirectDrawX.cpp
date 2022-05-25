@@ -21,6 +21,7 @@
 #include "Utils\Utils.h"
 #include <d3dkmthk.h>
 #include "Dllmain\DllMain.h"
+#include "GDI\User32.h"
 
 constexpr DWORD MaxVidMemory  = 0x32000000;	// 512 MBs
 constexpr DWORD UsedVidMemory = 0x00100000;	// 1 MB
@@ -1576,6 +1577,9 @@ HRESULT m_IDirectDrawX::SetDisplayMode(DWORD dwWidth, DWORD dwHeight, DWORD dwBP
 {
 	Logging::LogDebug() << __FUNCTION__ << " (" << this << ") " << dwWidth << "x" << dwHeight << " " << dwBPP << " " << dwRefreshRate << Logging::hex(dwFlags);
 
+	GdiWrapper::GameWidth = dwWidth;
+	GdiWrapper::GameHeight = dwHeight;
+
 	if (Config.Dd7to9)
 	{
 		if (!dwWidth || !dwHeight || (dwBPP != 8 && dwBPP != 16 && dwBPP != 24 && dwBPP != 32) ||
@@ -1655,8 +1659,8 @@ HRESULT m_IDirectDrawX::SetDisplayMode(DWORD dwWidth, DWORD dwHeight, DWORD dwBP
 			// Display resolution
 			if (SetDefaultDisplayMode)
 			{
-				displayWidth = (Config.DdrawUseNativeResolution || Config.DdrawOverrideWidth) ? displayWidth : FoundWidth;
-				displayHeight = (Config.DdrawUseNativeResolution || Config.DdrawOverrideHeight) ? displayHeight : FoundHeight;
+				GdiWrapper::NativeWidth = displayWidth = (Config.DdrawUseNativeResolution || Config.DdrawOverrideWidth) ? displayWidth : FoundWidth;
+				GdiWrapper::NativeHeight = displayHeight = (Config.DdrawUseNativeResolution || Config.DdrawOverrideHeight) ? displayHeight : FoundHeight;
 				displayRefreshRate = (Config.DdrawOverrideRefreshRate) ? displayRefreshRate : displayModeRefreshRate;
 			}
 		}
@@ -2145,7 +2149,7 @@ void m_IDirectDrawX::InitDdraw(DWORD DirectXVersion)
 		}
 
 		// Start thread
-		if (!threadID && EnableMouseHook)
+		/*if (!threadID && EnableMouseHook)
 		{
 			// A thread to bypass Windows preventing hooks from modifying mouse position
 			struct WindowsMouseThread
@@ -2157,6 +2161,7 @@ void m_IDirectDrawX::InitDdraw(DWORD DirectXVersion)
 						dwWaitResult = WaitForSingleObject(ghWriteEvent, INFINITE);
 						if (bMouseChange)
 						{
+							Logging::Log() << __FUNCTION__ << " reset mouse cursor! " << " x " << mousePos.x << " y " << mousePos.y;
 							SetCursorPos(mousePos.x, mousePos.y);
 							bMouseChange = false;
 						}
@@ -2182,7 +2187,7 @@ void m_IDirectDrawX::InitDdraw(DWORD DirectXVersion)
 			};
 
 			threadID = CreateThread(nullptr, 0, WindowsMouseThread::setMousePosThread, nullptr, 0, nullptr);
-		}
+		}*/
 
 		// Create event
 		if (!ghWriteEvent && EnableMouseHook)
